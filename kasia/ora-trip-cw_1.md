@@ -235,7 +235,20 @@ w szczególności dokumenty: `10_modyf_ora_north.pdf`, `20_ora_plsql_north.pdf`
 
 ```sql
 
--- przyklady, kod, zrzuty ekranów, komentarz ...
+select count(*) from PERSON;
+insert into PERSON(firstname, lastname) values (null, 'Błędny');
+
+insert into PERSON(firstname, lastname) values ('Anna', 'Masło');
+
+rollback;
+
+select * from PERSON where FIRSTNAME = 'Anna';
+
+insert into PERSON(firstname, lastname) values ('Anna', 'Masło');
+
+commit;
+
+insert into RESERVATION(trip_id, person_id, status) values (999, 1, 'N');
 
 ```
 
@@ -265,8 +278,38 @@ Proponowany zestaw widoków można rozbudować wedle uznania/potrzeb
 
 ```sql
 
--- wyniki, kod, zrzuty ekranów, komentarz ...
+create or replace view vw_reservation as
+select
+    r.reservation_id,
+    t.country,
+    t.TRIP_DATE,
+    p.FIRSTNAME,
+    p.LASTNAME,
+    r.STATUS,
+    r.TRIP_ID,
+    r.PERSON_ID
+from RESERVATION r
+join TRIP t on r.TRIP_ID = t.TRIP_ID
+join PERSON p on r.PERSON_ID = p.PERSON_ID;
 
+create or replace view vw_trip as
+select t.TRIP_ID,
+       t.COUNTRY,
+       t.TRIP_DATE,
+       t.TRIP_NAME,
+       t.MAX_NO_PLACES,
+       (t.MAX_NO_PLACES -(
+           select count(*) from RESERVATION r
+                           where r.TRIP_ID = t.TRIP_ID
+                           and r.STATUS in ('N', 'P')
+           )) as no_available_places
+from trip t;
+
+create or replace view vw_available_trip as
+    select *
+from vw_trip
+where TRIP_DATE > sysdate --wycieczki w przyszłości
+and no_available_places > 0; --i mają co najmniej jedno wolne miejsce (sysdate = getdate())
 
 
 ```
