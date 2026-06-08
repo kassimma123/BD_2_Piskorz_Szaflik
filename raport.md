@@ -23,3 +23,9 @@ CREATE TABLE Users (
 | **`First_Name`** | `VARCHAR2(50)` | `NOT NULL` | Imię użytkownika. |
 | **`Last_Name`** | `VARCHAR2(50)` | `NOT NULL` | Nazwisko użytkownika. |
 | **`Role`** | `VARCHAR2(20)` | `NOT NULL` | Rola w systemie (np. 'ADMIN', 'USER', 'CHEF'). |
+
+
+## Triggery
+
+
+## Procedury
