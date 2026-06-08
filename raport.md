@@ -179,8 +179,32 @@ CREATE TABLE Inventory_Log (
 | **`Log_Date`** | `DATE` | `DEFAULT SYSDATE` | Dokładny czas wykonania operacji. |
 
 ## Triggery
+### Wyzwalacz historii zmian: `TRG_Inventory_History`
 
+```sql
+
+```
+
+* Zapewnienie pełnej historii operacji magazynowych (kto, kiedy i co zmodyfikował w spiżarni).
+* Wyzwalacz reaguje na każdą operację na tabeli `Inventory`. W zależności od rodzaju operacji, automatycznie oblicza różnicę w stanach magazynowych lub rezerwacjach i zapisuje te dane do tabeli `Inventory_Log` wraz z aktualną datą systemową (`SYSDATE`). 
+* Uniemożliwia ręczną zmianę stanów magazynowych "poza plecami" systemu, co jest kluczowe w zarządzaniu kosztami restauracji (food cost).
 
 ## Procedury
+### Procedura rozliczania i zwalniania rezerwacji: `Resolve_Reservation`
+
+* Przetwarzanie statusu rezerwacji składników po podjęciu decyzji przez kucharza (gotowanie lub anulowanie posiłku).
+* Procedura przyjmuje jako parametry identyfikator rezerwacji oraz typ akcji (`COMPLETED` lub `CANCELLED`). 
+  * W przypadku **`COMPLETED`** (danie ugotowane) – system zmniejsza fizyczną ilość produktów (`Quantity`) w magazynie oraz zdejmuje rezerwację (`Reserved_Quantity`).
+  * W przypadku **`CANCELLED`** (anulowanie) – produkty wracają do puli ogólnodostępnej (zmniejszane jest tylko `Reserved_Quantity`).  
+Procedura operuje na kursorach z klauzulą `FOR UPDATE` (blokowanie wierszy na czas transakcji) i zdejmuje produkty według zasady FIFO (z partii o najkrótszej dacie ważności). Całość zabezpieczona jest instrukcjami `COMMIT` i `ROLLBACK`.
+* Automatyzuje proces wydań magazynowych i zapobiega powstawaniu błędów (np. ujemnych stanów magazynowych).
+
 
 ## Widoki
+
+### Widok raportujący: `V_Cook_Today`
+
+* Dynamiczne wspieranie decyzji Szefa Kuchni i kucharzy poprzez odpowiedź na pytanie: *"Co możemy w tym momencie ugotować z wolnych składników?"*.
+* Widok jest złożonym zapytaniem analitycznym, które wykorzystuje podzapytania (klauzula `WITH`), złączenia wielotabelowe (`JOIN`), funkcje agregujące (`SUM`, `MIN`) oraz funkcję matematyczną `FLOOR`. 
+  Zapytanie wylicza realną ilość dostępnych produktów (fizyczny stan minus rezerwacje innych kucharzy), zestawia je z wymaganiami z przepisów (`Recipes`) i oblicza maksymalną liczbę pełnych porcji, jaką można przygotować. Wyniki są filtrowane (tylko dania, na które starczy składników) i sortowane według **daty ważności najpilniejszego składnika** (promowanie dań z produktów, które psują się najszybciej).
+* Kluczowe narzędzie w strategii *Zero Waste* – pozwala kucharzowi szybko podjąć decyzję o przygotowaniu dań ze składników, które w przeciwnym razie musiałyby zostać wyrzucone lub oddane.
