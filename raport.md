@@ -178,19 +178,141 @@ CREATE TABLE Inventory_Log (
 | **`Quantity_Change`** | `NUMBER` | `NOT NULL` | Wielkość zmiany (+/- ilość dodana lub ujęta). |
 | **`Log_Date`** | `DATE` | `DEFAULT SYSDATE` | Dokładny czas wykonania operacji. |
 
+### Zabezpieczenie
+Aby system był odporny na błędy i unikał sytuacji niemożliwych w świecie rzeczywistym, zastosowałam ograniczenia typu CHECK CONSTRAINT. Baza danych automatycznie odrzuci każdą próbę wprowadzenia wartości mniejszej niż zero dla ilości produktów oraz rezerwacji.
+```sql
+-- Zabezpieczenie spiżarni
+ALTER TABLE Inventory ADD CONSTRAINT chk_inv_quantity CHECK (Quantity >= 0);
+ALTER TABLE Inventory ADD CONSTRAINT chk_inv_reserved CHECK (Reserved_Quantity >= 0);
+
+-- Zabezpieczenie przepisów
+ALTER TABLE Recipes ADD CONSTRAINT chk_recipes_req_qty CHECK (Required_Quantity > 0);
+
+-- Zabezpieczenie szczegółów rezerwacji
+ALTER TABLE Reservation_Items ADD CONSTRAINT chk_res_items_qty CHECK (Quantity > 0);
+```
+
 ## Triggery
 ### Wyzwalacz historii zmian: `TRG_Inventory_History`
 
 ```sql
+CREATE OR REPLACE TRIGGER TRG_Inventory_History
+AFTER INSERT OR UPDATE OR DELETE ON Inventory
+FOR EACH ROW
+DECLARE
+    v_user_id NUMBER := 1;
+    v_action VARCHAR2(50);
+    v_qty_change NUMBER;
+    v_product_id NUMBER;
+BEGIN
+    IF INSERTING THEN
+        v_action := 'ADDED_NEW_BATCH';
+        v_qty_change := :NEW.Quantity;
+        v_product_id := :NEW.Product_ID;
 
+    ELSIF UPDATING THEN
+        v_product_id := :NEW.Product_ID;
+
+        -- zmiana całkowitej ilości
+        IF :NEW.Quantity != :OLD.Quantity THEN
+            v_action := 'QUANTITY_CHANGED';
+            v_qty_change := :NEW.Quantity - :OLD.Quantity;
+        -- zmiana zarezerwowanej ilości
+        ELSIF :NEW.Reserved_Quantity != :OLD.Reserved_Quantity THEN
+            v_action := 'RESERVATION_UPDATED';
+            v_qty_change := :NEW.Reserved_Quantity - :OLD.Reserved_Quantity;
+        ELSE
+            v_action := 'STATUS_UPDATED (' || :NEW.Status || ')';
+            v_qty_change := 0;
+        END IF;
+    ELSIF DELETING THEN
+        v_action := 'REMOVED_BATCH';
+        v_qty_change := -:OLD.Quantity;
+        v_product_id := :OLD.Product_ID;
+    END IF;
+
+    INSERT INTO Inventory_log (User_ID, Product_ID, Action_Type, Quantity_Change, Log_Date)
+    VALUES (v_user_id, v_product_id, v_action, v_qty_change, SYSDATE);
+END;
 ```
 
 * Zapewnienie pełnej historii operacji magazynowych (kto, kiedy i co zmodyfikował w spiżarni).
 * Wyzwalacz reaguje na każdą operację na tabeli `Inventory`. W zależności od rodzaju operacji, automatycznie oblicza różnicę w stanach magazynowych lub rezerwacjach i zapisuje te dane do tabeli `Inventory_Log` wraz z aktualną datą systemową (`SYSDATE`). 
-* Uniemożliwia ręczną zmianę stanów magazynowych "poza plecami" systemu, co jest kluczowe w zarządzaniu kosztami restauracji (food cost).
+* Uniemożliwia ręczną zmianę stanów magazynowych "poza plecami" systemu, co jest kluczowe w zarządzaniu kosztami restauracji.
 
 ## Procedury
 ### Procedura rozliczania i zwalniania rezerwacji: `Resolve_Reservation`
+
+```sql
+CREATE OR REPLACE PROCEDURE Resolve_Reservation(
+    p_reservation_id IN NUMBER,
+    p_action IN VARCHAR2
+)
+IS
+    v_status VARCHAR2(20);
+    v_qty_to_process NUMBER;
+    v_deduct NUMBER;
+
+    -- produkty w rezerwacji
+    CURSOR c_items IS
+        SELECT Product_ID, Quantity
+        FROM Reservation_Items
+        WHERE Reservation_ID = p_reservation_id;
+
+    CURSOR c_inventory(p_prod NUMBER) IS
+        SELECT Batch_ID, Quantity, Reserved_Quantity
+        FROM Inventory
+        WHERE Product_ID = p_prod AND Reserved_Quantity > 0
+        ORDER BY Expiration_Date ASC
+        FOR UPDATE; -- blokowanie
+
+BEGIN
+    SELECT Status INTO v_status FROM Reservations WHERE Reservation_id = p_reservation_id;
+
+    IF v_status != 'ACTIVE' THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Rezerwacja została już zakończona lub anulowana!');
+    END IF;
+
+    FOR item IN c_items LOOP
+        v_qty_to_process := item.Quantity;
+
+        FOR inv_batch IN c_inventory(item.Product_ID) LOOP
+            EXIT WHEN v_qty_to_process <= 0;
+
+            v_deduct := LEAST(v_qty_to_process, inv_batch.Reserved_Quantity);
+
+            IF p_action = 'COMPLETED' THEN -- ugotowano
+                UPDATE Inventory
+                SET Quantity = Quantity - v_deduct,
+                    Reserved_Quantity = Reserved_Quantity - v_deduct
+                WHERE CURRENT OF c_inventory;
+
+            ELSIF p_action = 'CANCELLED' THEN -- anulowano
+                UPDATE Inventory
+                SET Reserved_Quantity = Reserved_Quantity - v_deduct
+                WHERE CURRENT OF c_inventory;
+            END IF;
+
+            v_qty_to_process := v_qty_to_process - v_deduct;
+        END LOOP;
+    END LOOP;
+
+    -- aktualizacja
+    UPDATE Reservations
+    SET Status = p_action
+    WHERE Reservation_ID = p_reservation_id;
+
+    COMMIT; -- zapisujemy
+
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Nie znaleziono takiej rezerwacji!');
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+
+END;
+```
 
 * Przetwarzanie statusu rezerwacji składników po podjęciu decyzji przez kucharza (gotowanie lub anulowanie posiłku).
 * Procedura przyjmuje jako parametry identyfikator rezerwacji oraz typ akcji (`COMPLETED` lub `CANCELLED`). 
@@ -203,6 +325,43 @@ Procedura operuje na kursorach z klauzulą `FOR UPDATE` (blokowanie wierszy na c
 ## Widoki
 
 ### Widok raportujący: `V_Cook_Today`
+
+```sql
+CREATE OR REPLACE VIEW V_Cook_Today AS
+WITH Available_Stock AS (
+    -- dostępną ilość na półce (minus rezerwacje)
+    SELECT
+        Product_ID,
+        SUM(Quantity - Reserved_Quantity) AS Total_Available,
+        MIN(Expiration_Date) AS Soonest_Exp_Date
+    FROM Inventory
+    WHERE Status = 'AVAILABLE'
+      AND Expiration_Date >= SYSDATE
+    GROUP BY Product_ID
+),
+     Dish_Capabilities AS (
+         -- Łączymy dania z ich przepisami i naszym magazynem
+         SELECT
+             d.Dish_ID,
+             d.Dish_Name,
+             d.Category,
+             MIN(FLOOR(NVL(st.Total_Available, 0) / r.Required_Quantity)) AS Max_Portions,
+             MIN(st.Soonest_Exp_Date) AS Critical_Expiration_Date -- data ważności
+         FROM Dishes d
+                  JOIN Recipes r ON d.Dish_ID = r.Dish_ID
+                  LEFT JOIN Available_Stock st ON r.Product_ID = st.Product_ID
+         GROUP BY d.Dish_ID, d.Dish_Name, d.Category
+     )
+
+SELECT
+    Dish_Name AS "Nazwa Dania",
+    Category AS "Kategoria",
+    Max_Portions AS "Możliwych Porcji",
+    Critical_Expiration_Date AS "Najpilniejszy Składnik"
+FROM Dish_Capabilities
+WHERE Max_Portions > 0
+ORDER BY Critical_Expiration_Date ASC;
+```
 
 * Dynamiczne wspieranie decyzji Szefa Kuchni i kucharzy poprzez odpowiedź na pytanie: *"Co możemy w tym momencie ugotować z wolnych składników?"*.
 * Widok jest złożonym zapytaniem analitycznym, które wykorzystuje podzapytania (klauzula `WITH`), złączenia wielotabelowe (`JOIN`), funkcje agregujące (`SUM`, `MIN`) oraz funkcję matematyczną `FLOOR`. 

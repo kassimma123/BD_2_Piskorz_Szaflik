@@ -89,3 +89,15 @@ CREATE TABLE Inventory_Log (
     FOREIGN KEY (User_ID) REFERENCES Users(User_ID),
     FOREIGN KEY (Product_ID) REFERENCES Product_Catalog(Product_ID)
 );
+
+
+-- zabezpieczenie
+-- Zabezpieczenie spiżarni
+ALTER TABLE Inventory ADD CONSTRAINT chk_inv_quantity CHECK (Quantity >= 0);
+ALTER TABLE Inventory ADD CONSTRAINT chk_inv_reserved CHECK (Reserved_Quantity >= 0);
+
+-- Zabezpieczenie przepisów
+ALTER TABLE Recipes ADD CONSTRAINT chk_recipes_req_qty CHECK (Required_Quantity > 0);
+
+-- Zabezpieczenie szczegółów rezerwacji
+ALTER TABLE Reservation_Items ADD CONSTRAINT chk_res_items_qty CHECK (Quantity > 0);
