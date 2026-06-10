@@ -367,3 +367,16 @@ ORDER BY Critical_Expiration_Date ASC;
 * Widok jest złożonym zapytaniem analitycznym, które wykorzystuje podzapytania (klauzula `WITH`), złączenia wielotabelowe (`JOIN`), funkcje agregujące (`SUM`, `MIN`) oraz funkcję matematyczną `FLOOR`. 
   Zapytanie wylicza realną ilość dostępnych produktów (fizyczny stan minus rezerwacje innych kucharzy), zestawia je z wymaganiami z przepisów (`Recipes`) i oblicza maksymalną liczbę pełnych porcji, jaką można przygotować. Wyniki są filtrowane (tylko dania, na które starczy składników) i sortowane według **daty ważności najpilniejszego składnika** (promowanie dań z produktów, które psują się najszybciej).
 * Kluczowe narzędzie w strategii *Zero Waste* – pozwala kucharzowi szybko podjąć decyzję o przygotowaniu dań ze składników, które w przeciwnym razie musiałyby zostać wyrzucone lub oddane.
+
+## Indeksy
+
+```sql
+-- Indeks na datę ważności
+CREATE INDEX idx_inventory_exp_date ON Inventory(Expiration_Date);
+
+-- Indeksy na klucze obce
+CREATE INDEX idx_inventory_product_id ON Inventory(Product_ID);
+CREATE INDEX idx_recipes_dish_id ON Recipes(Dish_ID);
+```
+
+Zaprojektowałyśmy indeksy bazodanowe dla kolumn, które są najczęściej przeszukiwane oraz łączone w zapytaniach. Dzięki temu, nawet przy dziesiątkach tysięcy produktów w spiżarni, raporty dla Szefa Kuchni generują się bardzo szybko, a baza nie jest obciążona.gi
