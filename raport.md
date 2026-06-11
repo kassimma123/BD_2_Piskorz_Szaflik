@@ -379,4 +379,4 @@ CREATE INDEX idx_inventory_product_id ON Inventory(Product_ID);
 CREATE INDEX idx_recipes_dish_id ON Recipes(Dish_ID);
 ```
 
-Zaprojektowałyśmy indeksy bazodanowe dla kolumn, które są najczęściej przeszukiwane oraz łączone w zapytaniach. Dzięki temu, nawet przy dziesiątkach tysięcy produktów w spiżarni, raporty dla Szefa Kuchni generują się bardzo szybko, a baza nie jest obciążona.gi
+Zaprojektowałyśmy indeksy bazodanowe dla kolumn, które są najczęściej przeszukiwane oraz łączone w zapytaniach. Dzięki temu, nawet przy dziesiątkach tysięcy produktów w spiżarni, raporty dla Szefa Kuchni generują się bardzo szybko, a baza nie jest obciążona.
