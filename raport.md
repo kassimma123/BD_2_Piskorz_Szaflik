@@ -240,6 +240,42 @@ END;
 * Wyzwalacz reaguje na każdą operację na tabeli `Inventory`. W zależności od rodzaju operacji, automatycznie oblicza różnicę w stanach magazynowych lub rezerwacjach i zapisuje te dane do tabeli `Inventory_Log` wraz z aktualną datą systemową (`SYSDATE`). 
 * Uniemożliwia ręczną zmianę stanów magazynowych "poza plecami" systemu, co jest kluczowe w zarządzaniu kosztami restauracji.
 
+### Wyzwalacz automatycznych zakupów: `Trg_Automatyczne_Zakupy`
+
+```sql
+CREATE OR REPLACE TRIGGER Trg_Automatyczne_Zakupy
+AFTER UPDATE OF Quantity, Reserved_Quantity ON Inventory
+FOR EACH ROW
+DECLARE
+    PRAGMA AUTONOMOUS_TRANSACTION;
+    v_Min_Stock NUMBER;
+    v_Total_Current_Available NUMBER;
+    v_Already_On_List NUMBER;
+BEGIN
+    SELECT Min_Stock_Level INTO v_Min_Stock FROM Product_Catalog WHERE Product_ID = :NEW.Product_ID;
+
+    SELECT NVL(SUM(Quantity - Reserved_Quantity), 0) INTO v_Total_Current_Available
+    FROM Inventory
+    WHERE Product_ID = :NEW.Product_ID AND Status = 'AVAILABLE' AND Expiration_Date >= TRUNC(SYSDATE);
+
+    SELECT COUNT(*) INTO v_Already_On_List
+    FROM Shopping_List
+    WHERE Product_ID = :NEW.Product_ID AND Status = 'TO_BUY';
+
+    IF v_Total_Current_Available < v_Min_Stock AND v_Already_On_List = 0 THEN
+        INSERT INTO Shopping_List (Product_ID, Date_Added, Status)
+        VALUES (:NEW.Product_ID, SYSDATE, 'TO_BUY');
+    END IF;
+    
+    COMMIT; 
+END;
+/
+```
+
+* **Automatyzacja zarządzania zapasami:** Wyzwalacz w locie sprawdza stan spiżarni przy każdej zmianie ilości produktu. 
+* Jeśli suma wolnego towaru (dostępnego i niezarezerwowanego) spadnie poniżej ustalonego progu bezpieczeństwa (`Min_Stock_Level`), system samodzielnie wpisuje brakujący produkt na listę zakupów (`Shopping_List`).
+* Trigger zabezpiecza nas przed dublowaniem zamówień – upewnia się najpierw, czy produkt nie widnieje już na liście ze statusem `TO_BUY`. Dzięki autonomicznej transakcji (`PRAGMA AUTONOMOUS_TRANSACTION`) logowanie braku dokonuje się płynnie, niezależnie od innych zdarzeń na głównej transakcji.
+
 ## Procedury
 ### Procedura rozliczania i zwalniania rezerwacji: `Resolve_Reservation`
 
@@ -321,6 +357,176 @@ END;
 Procedura operuje na kursorach z klauzulą `FOR UPDATE` (blokowanie wierszy na czas transakcji) i zdejmuje produkty według zasady FIFO (z partii o najkrótszej dacie ważności). Całość zabezpieczona jest instrukcjami `COMMIT` i `ROLLBACK`.
 * Automatyzuje proces wydań magazynowych i zapobiega powstawaniu błędów (np. ujemnych stanów magazynowych).
 
+### Procedura rezerwacji składników na poczet dania: `Zarezerwuj_Danie`
+
+```sql
+CREATE OR REPLACE PROCEDURE Zarezerwuj_Danie (
+    p_User_ID IN NUMBER,
+    p_Dish_ID IN NUMBER
+) AS
+    v_Has_Enough_Stock BOOLEAN := TRUE;
+    v_Reservation_ID NUMBER;
+    v_Available_Qty NUMBER;
+    
+    -- Wyciągam składniki potrzebne do zrobienia tego konkretnego dania
+    CURSOR c_Recipe IS
+        SELECT Product_ID, Required_Quantity 
+        FROM Recipes 
+        WHERE Dish_ID = p_Dish_ID;
+        
+    -- Tabele pomocnicze, żeby zapamiętać w pamięci sesji co musimy zablokować i ile tego potrzebujemy
+    TYPE t_Product_ID IS TABLE OF Recipes.Product_ID%TYPE;
+    TYPE t_Required_Qty IS TABLE OF Recipes.Required_Quantity%TYPE;
+    v_Prod_IDs t_Product_ID := t_Product_ID();
+    v_Req_Qties t_Required_Qty := t_Required_Qty();
+BEGIN
+    -- BLOKOWANIE I WERYFIKACJA ASORTYMENTU
+    -- Przechodzę po kolei przez każdy składnik z przepisu i blokuję go w bazie (FOR UPDATE),
+    -- żeby w tym samym czasie nikt inny nie podkradł nam tych produktów ze spiżarni.
+    FOR r IN c_Recipe LOOP
+        v_Prod_IDs.EXTEND;
+        v_Req_Qties.EXTEND;
+        v_Prod_IDs(v_Prod_IDs.LAST) := r.Product_ID;
+        v_Req_Qties(v_Req_Qties.LAST) := r.Required_Quantity;
+
+        -- Liczę, ile w ogóle mamy wolnego i ważnego produktu we wszystkich partiach.
+        SELECT NVL(SUM(Quantity - Reserved_Quantity), 0)
+        INTO v_Available_Qty
+        FROM Inventory
+        WHERE Product_ID = r.Product_ID 
+          AND Status = 'AVAILABLE' 
+          AND Expiration_Date >= TRUNC(SYSDATE);
+
+        -- Jeśli w spiżarni brakuje chociaż jednego składnika, zaznaczam to sobie na później.
+        IF v_Available_Qty < r.Required_Quantity THEN
+            v_Has_Enough_Stock := FALSE;
+        END IF;
+    END LOOP;
+
+    -- DECYZJA O TRANSAKCJI
+    IF NOT v_Has_Enough_Stock THEN
+        -- Jeśli zabrakło jakiegoś składnika, wycofuję wszystkie blokady (ROLLBACK) i rzucam błąd.
+        ROLLBACK;
+        RAISE_APPLICATION_ERROR(-20001, 'Brak wystarczającej ilości składników w spiżarni do przygotowania tego dania!');
+    ELSE
+        -- Jak wszystko jest na stanie, to tworzę główny wpis rezerwacji.
+        INSERT INTO Reservations (User_ID, Dish_ID, Reservation_Date, Status)
+        VALUES (p_User_ID, p_Dish_ID, SYSDATE, 'ACTIVE')
+        RETURNING Reservation_ID INTO v_Reservation_ID;
+
+        -- Teraz po kolei rezerwuję potrzebną ilość każdego składnika w partiach.
+        FOR i IN 1..v_Prod_IDs.COUNT LOOP
+            -- Zapisuję szczegóły, co dokładnie i w jakiej ilości zostało zarezerwowane dla danej rezerwacji.
+            INSERT INTO Reservation_Items (Reservation_ID, Product_ID, Quantity)
+            VALUES (v_Reservation_ID, v_Prod_IDs(i), v_Req_Qties(i));
+
+            -- Muszę rozdysponować zapotrzebowanie na partie w magazynie.
+            -- Zaczynam od tych partii, które mają najkrótszą datę ważności (FIFO dla przeterminowania).
+            DECLARE
+                v_Remaining_To_Reserve NUMBER := v_Req_Qties(i);
+                v_Batch_ID NUMBER;
+                v_Batch_Free_Qty NUMBER;
+                
+                CURSOR c_Batches IS
+                    SELECT Batch_ID, (Quantity - Reserved_Quantity) AS Free_Qty
+                    FROM Inventory
+                    WHERE Product_ID = v_Prod_IDs(i) 
+                      AND Status = 'AVAILABLE' 
+                      AND Expiration_Date >= TRUNC(SYSDATE)
+                    ORDER BY Expiration_Date ASC
+                    FOR UPDATE; -- Blokuję te rekordy żeby nikt inny ich nie użył
+            BEGIN
+                OPEN c_Batches;
+                LOOP
+                    FETCH c_Batches INTO v_Batch_ID, v_Batch_Free_Qty;
+                    EXIT WHEN c_Batches%NOTFOUND OR v_Remaining_To_Reserve = 0;
+                    
+                    -- Jeśli ta partia ma więcej wolnego niż potrzebuję, rezerwuję całość i kończę.
+                    IF v_Batch_Free_Qty >= v_Remaining_To_Reserve THEN
+                        UPDATE Inventory 
+                        SET Reserved_Quantity = Reserved_Quantity + v_Remaining_To_Reserve
+                        WHERE Batch_ID = v_Batch_ID;
+                        v_Remaining_To_Reserve := 0;
+                    ELSE
+                        -- Jeśli partia ma za mało, rezerwuję ile się da i szukam w kolejnej partii.
+                        UPDATE Inventory 
+                        SET Reserved_Quantity = Reserved_Quantity + v_Batch_Free_Qty
+                        WHERE Batch_ID = v_Batch_ID;
+                        v_Remaining_To_Reserve := v_Remaining_To_Reserve - v_Batch_Free_Qty;
+                    END IF;
+                END LOOP;
+                CLOSE c_Batches;
+            END;
+            
+            -- Wrzucam info do logów, że dany użytkownik zablokował składniki.
+            INSERT INTO Inventory_Log (User_ID, Product_ID, Action_Type, Quantity_Change)
+            VALUES (p_User_ID, v_Prod_IDs(i), 'RESERVATION_ADD', v_Req_Qties(i));
+        END LOOP;
+
+        -- Wszystko się udało, zapisuję transakcję i puszczam blokady.
+        COMMIT;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK; -- W razie nieoczekiwanego błędu bazy danych wycofaj wszystko
+        RAISE;
+END Zarezerwuj_Danie;
+/
+
+```
+
+* **Bezpieczeństwo współbieżności:** Procedura realizuje zaawansowany mechanizm rezerwacji składników pod konkretne danie. Używa blokady pesymistycznej (`FOR UPDATE`), co gwarantuje, że inny kucharz nie zużyje tych samych produktów w tym samym ułamku sekundy.
+* **Rozliczanie po partiach:** Przydzielanie rezerwacji z poszczególnych partii odbywa się elastycznie z użyciem strategii FIFO – w pierwszej kolejności zawsze alokowane są najstarsze partie o najkrótszej dacie ważności, co wspiera model First-In First-Out.
+* Jeśli w połowie weryfikacji algorytm zorientuje się, że brakuje choć jednego składnika na przygotowanie całego dania, następuje momentalne wycofanie wszystkich blokad (`ROLLBACK`), a błędna rezerwacja nie dochodzi do skutku. Oszczędza to czas kucharza i zapobiega niesłusznemu zamrażaniu surowców.
+
+### Procedura przekazania żywności: `Koniec_Dnia_Darmowe_Oddanie`
+
+```sql
+
+-- Procedura końca dnia darmowego oddania
+CREATE OR REPLACE PROCEDURE Koniec_Dnia_Darmowe_Oddanie (
+    p_Admin_User_ID IN NUMBER
+) AS
+    v_User_Role VARCHAR2(20);
+BEGIN
+    -- Upewniam się, czy to na pewno Szef Kuchni (CHEF) odpala procedurę. Zwykły pracownik nie ma uprawnień.
+    SELECT Role INTO v_User_Role FROM Users WHERE User_ID = p_Admin_User_ID;
+    IF v_User_Role != 'CHEF' THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Tylko Szef Kuchni może uruchomić procedurę końca dnia!');
+    END IF;
+
+    -- Szukam partii jedzenia, które kończą ważność dzisiaj lub jutro i nie są jeszcze zarezerwowane.
+    -- Wszystko to, co jest wolne (Quantity - Reserved_Quantity > 0), oddajemy na cele charytatywne.
+    FOR r IN (
+        SELECT Batch_ID, Product_ID, (Quantity - Reserved_Quantity) AS Available_To_Donate
+        FROM Inventory
+        WHERE Expiration_Date <= TRUNC(SYSDATE) + 1 
+          AND Status = 'AVAILABLE'
+          AND (Quantity - Reserved_Quantity) > 0
+    ) LOOP
+        -- Zapisuję do logów, ile dokładnie oddaliśmy danej rzeczy na charytatywność (dlatego ujemna wartość).
+        INSERT INTO Inventory_Log (User_ID, Product_ID, Action_Type, Quantity_Change)
+        VALUES (p_Admin_User_ID, r.Product_ID, 'CHARITY_DONATION', -r.Available_To_Donate);
+
+        -- Zeruję wolne zapasy z tej partii (zostaje tylko to, co już było wcześniej zarezerwowane).
+        -- Jeśli po tym zabiegu nic nie zostało zarezerwowane (Reserved_Quantity = 0), oznaczam partię jako całkiem oddaną ('DONATED').
+        UPDATE Inventory
+        SET Quantity = Reserved_Quantity, 
+            Status = CASE WHEN Reserved_Quantity = 0 THEN 'DONATED' ELSE 'AVAILABLE' END
+        WHERE Batch_ID = r.Batch_ID;
+    END LOOP;
+    
+    -- Zapisuję zmiany na stałe.
+    COMMIT;
+END Koniec_Dnia_Darmowe_Oddanie;
+/
+
+
+```
+
+* **Zarządzanie Zero-Waste na koniec dnia:** Codzienna procedura wywoływana przez Szefa Kuchni, która skanuje magazyn w celu znalezienia wszystkich partii surowców, których termin przydatności kończy się najpóźniej jutro, a które nie zostały w 100% użyte do rezerwacji dań.
+* Uruchomienie procedury natychmiastowo odprowadza takie wolne zasoby ze stanu magazynu (ustawiając parametr `Quantity` równo z zablokowanymi zapasami i nadając partii końcowy status `'DONATED'`) oraz ściśle dokumentuje ten zaszczytny proces przekazania w tabeli logów.
+
 
 ## Widoki
 
@@ -368,15 +574,51 @@ ORDER BY Critical_Expiration_Date ASC;
   Zapytanie wylicza realną ilość dostępnych produktów (fizyczny stan minus rezerwacje innych kucharzy), zestawia je z wymaganiami z przepisów (`Recipes`) i oblicza maksymalną liczbę pełnych porcji, jaką można przygotować. Wyniki są filtrowane (tylko dania, na które starczy składników) i sortowane według **daty ważności najpilniejszego składnika** (promowanie dań z produktów, które psują się najszybciej).
 * Kluczowe narzędzie w strategii *Zero Waste* – pozwala kucharzowi szybko podjąć decyzję o przygotowaniu dań ze składników, które w przeciwnym razie musiałyby zostać wyrzucone lub oddane.
 
-## Indeksy
+## Indeksy i Optymalizacja
 
 ```sql
--- Indeks na datę ważności
+-- Indeks do szybkiego wyszukiwania psującego się jedzenia
 CREATE INDEX idx_inventory_exp_date ON Inventory(Expiration_Date);
 
--- Indeksy na klucze obce
+-- Indeksy na klucze obce (zapobiegają blokadom i przyspieszają JOINy)
 CREATE INDEX idx_inventory_product_id ON Inventory(Product_ID);
 CREATE INDEX idx_recipes_dish_id ON Recipes(Dish_ID);
+CREATE INDEX idx_recipes_product_id ON Recipes(Product_ID);
+CREATE INDEX idx_reservations_user_id ON Reservations(User_ID);
+CREATE INDEX idx_res_items_res_id ON Reservation_Items(Reservation_ID);
+CREATE INDEX idx_res_items_prod_id ON Reservation_Items(Product_ID);
+CREATE INDEX idx_log_product_id ON Inventory_Log(Product_ID);
 ```
 
-Zaprojektowałyśmy indeksy bazodanowe dla kolumn, które są najczęściej przeszukiwane oraz łączone w zapytaniach. Dzięki temu, nawet przy dziesiątkach tysięcy produktów w spiżarni, raporty dla Szefa Kuchni generują się bardzo szybko, a baza nie jest obciążona.
+* Zaprojektowałyśmy zoptymalizowane indeksy bazodanowe (`B-Tree`) dla kolumn, po których najczęściej wykonujemy warunki ograniczające `WHERE` oraz na kluczowych kolumnach łączących tabele relacyjne w klauzulach `JOIN`. 
+* Znacząco przyspiesza to m.in. generowanie skomplikowanych widoków raportowych dla Szefa Kuchni.
+* Dodatkowo konsekwentna indeksacja kluczy obcych zapobiega problematycznym blokadom pełnych tabel (tzw. _table locks_) podczas usuwania lub aktualizowania rekordów nadrzędnych.
+
+## Uprawnienia i Bezpieczeństwo (RBAC)
+
+```sql
+-- Tworzymy role biznesowe
+CREATE ROLE ROLE_COOK;
+CREATE ROLE ROLE_CHEF;
+
+-- Zwykły kucharz: wgląd w zapasy i uruchamianie rezerwacji
+GRANT SELECT ON Dishes TO ROLE_COOK;
+GRANT SELECT ON Recipes TO ROLE_COOK;
+GRANT SELECT ON Product_Catalog TO ROLE_COOK;
+GRANT SELECT, UPDATE ON Inventory TO ROLE_COOK;
+GRANT INSERT, SELECT, UPDATE ON Reservations TO ROLE_COOK;
+GRANT INSERT, SELECT ON Reservation_Items TO ROLE_COOK;
+GRANT EXECUTE ON Zarezerwuj_Danie TO ROLE_COOK;
+GRANT EXECUTE ON Resolve_Reservation TO ROLE_COOK;
+
+-- Szef Kuchni: dziedziczy po kucharzu, plus pełna edycja menu i zamknięcie dnia
+GRANT ROLE_COOK TO ROLE_CHEF;
+GRANT INSERT, UPDATE, DELETE ON Dishes TO ROLE_CHEF;
+GRANT INSERT, UPDATE, DELETE ON Recipes TO ROLE_CHEF;
+GRANT INSERT, UPDATE, DELETE ON Product_Catalog TO ROLE_CHEF;
+GRANT EXECUTE ON Koniec_Dnia_Darmowe_Oddanie TO ROLE_CHEF;
+```
+
+* Cała struktura autoryzacji do bazy danych została ukształtowana w oparciu o fundamentalną zasadę bezpieczeństwa: **najmniejszego uprzywilejowania** (ang. _Principle of Least Privilege_).
+* **`ROLE_COOK`** (Kucharz) posiada jedynie bardzo restrykcyjne prawa odczytu do menu i stanów spiżarni. Co kluczowe – kucharz w ogóle nie ma prawa tworzyć ręcznie produktów, a stany spiżarni zmniejsza i rezerwuje wyłącznie wywołując w pełni ufany i obudowany logiką biznesową interfejs bazy, czyli stworzone procedury (`Zarezerwuj_Danie`). Uziemia to praktycznie do zera potencjał omijania logowania akcji przez szeregowych pracowników.
+* **`ROLE_CHEF`** (Szef Kuchni) dziedziczy podstawowe prawa zwykłego kucharza, ale dzięki awansowi otrzymuje pełne przywileje do wprowadzania nowych potraw na menu, modyfikacji starych przepisów i wreszcie posiada autoryzację administracyjną do uruchomienia procedury `Koniec_Dnia_Darmowe_Oddanie` na poczet działań fundacyjnych.

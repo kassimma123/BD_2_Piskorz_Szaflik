@@ -17,7 +17,7 @@ CREATE TABLE Product_Catalog (
     Product_ID NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     Product_Name VARCHAR2(100) NOT NULL,
     Unit VARCHAR2(10) NOT NULL,
-    Min_Stock_Level NUMBER NOT NULL,
+    Min_Stock_Level NUMBER NOT NULL
 );
 
 -- spiżarnia
@@ -95,9 +95,13 @@ CREATE TABLE Inventory_Log (
 -- Zabezpieczenie spiżarni
 ALTER TABLE Inventory ADD CONSTRAINT chk_inv_quantity CHECK (Quantity >= 0);
 ALTER TABLE Inventory ADD CONSTRAINT chk_inv_reserved CHECK (Reserved_Quantity >= 0);
+ALTER TABLE Inventory ADD CONSTRAINT chk_qty_logic CHECK (Quantity >= Reserved_Quantity);
 
 -- Zabezpieczenie przepisów
 ALTER TABLE Recipes ADD CONSTRAINT chk_recipes_req_qty CHECK (Required_Quantity > 0);
 
 -- Zabezpieczenie szczegółów rezerwacji
 ALTER TABLE Reservation_Items ADD CONSTRAINT chk_res_items_qty CHECK (Quantity > 0);
+
+-- Zabezpieczenia dla katalogu
+ALTER TABLE Product_Catalog ADD CONSTRAINT chk_prod_min_stock CHECK (Min_Stock_Level >= 0);
