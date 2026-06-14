@@ -13,14 +13,20 @@ INSERT INTO Product_Catalog (Product_Name, Unit, Min_Stock_Level) VALUES ('Cukie
 -- Dostawa mleka
 INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
 VALUES (1, 6, TO_DATE('2026-06-05', 'YYYY-MM-DD'), 'AVAILABLE', 0);
+INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
+VALUES (1, 10, TO_DATE('2026-06-30', 'YYYY-MM-DD'), 'AVAILABLE', 0);
 
 -- Dostawa mąki
+INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
+VALUES (2, 15, TO_DATE('2026-12-31', 'YYYY-MM-DD'), 'AVAILABLE', 0);
 INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
 VALUES (2, 15, TO_DATE('2026-12-31', 'YYYY-MM-DD'), 'AVAILABLE', 0);
 
 -- Dostawa jajek
 INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
 VALUES (3, 40, TO_DATE('2026-06-15', 'YYYY-MM-DD'), 'AVAILABLE', 0);
+INSERT INTO Inventory (Product_ID, Quantity, Expiration_Date, Status, Reserved_Quantity)
+VALUES (3, 40, TO_DATE('2026-07-15', 'YYYY-MM-DD'), 'AVAILABLE', 0);
 
 -- menu
 INSERT INTO Dishes (Dish_Name, Category) VALUES ('Naleśniki', 'Śniadanie');

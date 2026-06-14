@@ -39,7 +39,8 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE TRIGGER Trg_Automatyczne_Zakupy
+# TRG_Auto_Restock
+CREATE OR REPLACE TRIGGER TRG_Auto_Restock
 AFTER UPDATE OF Quantity, Reserved_Quantity ON Inventory
 FOR EACH ROW
 DECLARE

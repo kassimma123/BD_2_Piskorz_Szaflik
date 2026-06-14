@@ -69,8 +69,8 @@ EXCEPTION
 END;
 /
 
--- Procedura rezerwacji dania
-CREATE OR REPLACE PROCEDURE Zarezerwuj_Danie (
+-- Procedura rezerwacji dania Reserve_Dish
+CREATE OR REPLACE PROCEDURE Reserve_Dish (
     p_User_ID IN NUMBER,
     p_Dish_ID IN NUMBER
 ) AS
@@ -184,8 +184,8 @@ END Zarezerwuj_Danie;
 /
 
 
--- Procedura końca dnia darmowego oddania
-CREATE OR REPLACE PROCEDURE Koniec_Dnia_Darmowe_Oddanie (
+-- Procedura końca dnia darmowego oddania - Donate_Expired_Food
+CREATE OR REPLACE PROCEDURE Donate_Expired_Food (
     p_Admin_User_ID IN NUMBER
 ) AS
     v_User_Role VARCHAR2(20);

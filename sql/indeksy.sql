@@ -1,7 +1,7 @@
 -- Indeks do szybkiego wyszukiwania psującego się jedzenia
 CREATE INDEX idx_inventory_exp_date ON Inventory(Expiration_Date);
 
--- Indeksy na klucze obce (zapobiegają blokadom i przyspieszają JOINy)
+-- Indeksy na klucze obce
 CREATE INDEX idx_inventory_product_id ON Inventory(Product_ID);
 CREATE INDEX idx_recipes_dish_id ON Recipes(Dish_ID);
 CREATE INDEX idx_recipes_product_id ON Recipes(Product_ID);

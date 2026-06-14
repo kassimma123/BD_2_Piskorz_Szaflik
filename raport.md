@@ -240,10 +240,10 @@ END;
 * Wyzwalacz reaguje na każdą operację na tabeli `Inventory`. W zależności od rodzaju operacji, automatycznie oblicza różnicę w stanach magazynowych lub rezerwacjach i zapisuje te dane do tabeli `Inventory_Log` wraz z aktualną datą systemową (`SYSDATE`). 
 * Uniemożliwia ręczną zmianę stanów magazynowych "poza plecami" systemu, co jest kluczowe w zarządzaniu kosztami restauracji.
 
-### Wyzwalacz automatycznych zakupów: `Trg_Automatyczne_Zakupy`
+### Wyzwalacz automatycznych zakupów: `TRG_Auto_Restock`
 
 ```sql
-CREATE OR REPLACE TRIGGER Trg_Automatyczne_Zakupy
+CREATE OR REPLACE TRIGGER TRG_Auto_Restock
 AFTER UPDATE OF Quantity, Reserved_Quantity ON Inventory
 FOR EACH ROW
 DECLARE
@@ -357,10 +357,10 @@ END;
 Procedura operuje na kursorach z klauzulą `FOR UPDATE` (blokowanie wierszy na czas transakcji) i zdejmuje produkty według zasady FIFO (z partii o najkrótszej dacie ważności). Całość zabezpieczona jest instrukcjami `COMMIT` i `ROLLBACK`.
 * Automatyzuje proces wydań magazynowych i zapobiega powstawaniu błędów (np. ujemnych stanów magazynowych).
 
-### Procedura rezerwacji składników na poczet dania: `Zarezerwuj_Danie`
+### Procedura rezerwacji składników: `Reserve_Dish`
 
 ```sql
-CREATE OR REPLACE PROCEDURE Zarezerwuj_Danie (
+CREATE OR REPLACE PROCEDURE Reserve_Dish (
     p_User_ID IN NUMBER,
     p_Dish_ID IN NUMBER
 ) AS
@@ -479,12 +479,10 @@ END Zarezerwuj_Danie;
 * **Rozliczanie po partiach:** Przydzielanie rezerwacji z poszczególnych partii odbywa się elastycznie z użyciem strategii FIFO – w pierwszej kolejności zawsze alokowane są najstarsze partie o najkrótszej dacie ważności, co wspiera model First-In First-Out.
 * Jeśli w połowie weryfikacji algorytm zorientuje się, że brakuje choć jednego składnika na przygotowanie całego dania, następuje momentalne wycofanie wszystkich blokad (`ROLLBACK`), a błędna rezerwacja nie dochodzi do skutku. Oszczędza to czas kucharza i zapobiega niesłusznemu zamrażaniu surowców.
 
-### Procedura przekazania żywności: `Koniec_Dnia_Darmowe_Oddanie`
+### Procedura przekazania żywności: `Donate_Expired_Food`
 
 ```sql
-
--- Procedura końca dnia darmowego oddania
-CREATE OR REPLACE PROCEDURE Koniec_Dnia_Darmowe_Oddanie (
+CREATE OR REPLACE PROCEDURE Donate_Expired_Food (
     p_Admin_User_ID IN NUMBER
 ) AS
     v_User_Role VARCHAR2(20);
@@ -580,7 +578,7 @@ ORDER BY Critical_Expiration_Date ASC;
 -- Indeks do szybkiego wyszukiwania psującego się jedzenia
 CREATE INDEX idx_inventory_exp_date ON Inventory(Expiration_Date);
 
--- Indeksy na klucze obce (zapobiegają blokadom i przyspieszają JOINy)
+-- Indeksy na klucze obce
 CREATE INDEX idx_inventory_product_id ON Inventory(Product_ID);
 CREATE INDEX idx_recipes_dish_id ON Recipes(Dish_ID);
 CREATE INDEX idx_recipes_product_id ON Recipes(Product_ID);
@@ -622,3 +620,27 @@ GRANT EXECUTE ON Koniec_Dnia_Darmowe_Oddanie TO ROLE_CHEF;
 * Cała struktura autoryzacji do bazy danych została ukształtowana w oparciu o fundamentalną zasadę bezpieczeństwa: **najmniejszego uprzywilejowania** (ang. _Principle of Least Privilege_).
 * **`ROLE_COOK`** (Kucharz) posiada jedynie bardzo restrykcyjne prawa odczytu do menu i stanów spiżarni. Co kluczowe – kucharz w ogóle nie ma prawa tworzyć ręcznie produktów, a stany spiżarni zmniejsza i rezerwuje wyłącznie wywołując w pełni ufany i obudowany logiką biznesową interfejs bazy, czyli stworzone procedury (`Zarezerwuj_Danie`). Uziemia to praktycznie do zera potencjał omijania logowania akcji przez szeregowych pracowników.
 * **`ROLE_CHEF`** (Szef Kuchni) dziedziczy podstawowe prawa zwykłego kucharza, ale dzięki awansowi otrzymuje pełne przywileje do wprowadzania nowych potraw na menu, modyfikacji starych przepisów i wreszcie posiada autoryzację administracyjną do uruchomienia procedury `Koniec_Dnia_Darmowe_Oddanie` na poczet działań fundacyjnych.
+
+## Backend (API)
+Do integracji bazy danych Oracle z aplikacją kliencką (frontendem w React) zastosowano nowoczesny, wysokowydajny framework **FastAPI** w języku Python. Backend pełni rolę bezpiecznego łącznika (REST API), który przyjmuje żądania z interfejsu użytkownika, mapuje je na zapytania relacyjne i przekazuje do wykonania po stronie serwera Oracle, a następnie zwraca ustrukturyzowane wyniki w formacie JSON.
+
+Implementazja znajduje się w podfolderze backend w pliku `main.py`
+
+| Metoda | Ścieżka (URI) | Model wejściowy | Opis działania biznesowego | Powiązany obiekt bazy |
+| :--- | :--- | :--- | :--- | :--- |
+| **`GET`** | `/api/reports/what-to-cook` | *Brak* | Pobiera listę potraw, które kucharz może przygotować na bazie aktualnych, świeżych stanów spiżarni. | `V_Cook_Today` |
+| **`POST`** | `/api/reservations/reserve` | `ReserveRequest` | Przesyła ID kucharza oraz ID dania. Blokuje zasoby w bazie i tworzy rezerwację. | `Reserve_Dish` |
+| **`POST`** | `/api/reservations/resolve` | `ResolveRequest` | Aktualizuje stan rezerwacji – pomniejsza fizyczny stan magazynu w przypadku ugotowania potrawy lub zwraca surowce do puli wolnej w przypadku anulowania. | `Resolve_Reservation` |
+| **`POST`** | `/api/admin/end-of-day` | `EndOfDayRequest` | Weryfikuje rolę użytkownika (wymagany Szef Kuchni) i automatycznie zeruje oraz przekazuje fundacjom towary bliskie przeterminowania. | `Donate_Expired_Food` |
+| **`GET`** | `/api/inventory` | *Brak* | Zwraca pełną listę partii magazynowych wraz z nazwami produktów, ilościami wolnymi i zarezerwowanymi. | `Inventory` + `Product_Catalog` |
+### Jak włączyć?
+Przechodzimy do podfolderu z backendem:
+```Bash
+cd backend
+```
+Uruchomienie:
+```Bash
+uvicorn main:app --reload
+```
+
+**Testowanie** W przeglądarce wpisz: `http://127.0.0.1:8000/docs`
