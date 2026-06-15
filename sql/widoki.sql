@@ -24,7 +24,6 @@ WITH Available_Stock AS (
                   LEFT JOIN Available_Stock st ON r.Product_ID = st.Product_ID
          GROUP BY d.Dish_ID, d.Dish_Name, d.Category
      )
-
 SELECT
     Dish_Name AS "Nazwa Dania",
     Category AS "Kategoria",

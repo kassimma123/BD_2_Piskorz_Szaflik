@@ -180,7 +180,7 @@ EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK; -- W razie nieoczekiwanego błędu bazy danych wycofaj wszystko
         RAISE;
-END Zarezerwuj_Danie;
+END Reserve_Dish;
 /
 
 
@@ -219,7 +219,7 @@ BEGIN
     
     -- Zapisuję zmiany na stałe.
     COMMIT;
-END Koniec_Dnia_Darmowe_Oddanie;
+END Donate_Expired_Food;
 /
 
 

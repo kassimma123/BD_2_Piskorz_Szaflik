@@ -470,7 +470,7 @@ EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK; -- W razie nieoczekiwanego błędu bazy danych wycofaj wszystko
         RAISE;
-END Zarezerwuj_Danie;
+END Reserve_Dish;
 /
 
 ```
@@ -516,7 +516,7 @@ BEGIN
     
     -- Zapisuję zmiany na stałe.
     COMMIT;
-END Koniec_Dnia_Darmowe_Oddanie;
+END Donate_Expired_Food;
 /
 
 
@@ -606,7 +606,7 @@ GRANT SELECT ON Product_Catalog TO ROLE_COOK;
 GRANT SELECT, UPDATE ON Inventory TO ROLE_COOK;
 GRANT INSERT, SELECT, UPDATE ON Reservations TO ROLE_COOK;
 GRANT INSERT, SELECT ON Reservation_Items TO ROLE_COOK;
-GRANT EXECUTE ON Zarezerwuj_Danie TO ROLE_COOK;
+GRANT EXECUTE ON Reserve_Dish TO ROLE_COOK;
 GRANT EXECUTE ON Resolve_Reservation TO ROLE_COOK;
 
 -- Szef Kuchni: dziedziczy po kucharzu, plus pełna edycja menu i zamknięcie dnia
@@ -614,12 +614,12 @@ GRANT ROLE_COOK TO ROLE_CHEF;
 GRANT INSERT, UPDATE, DELETE ON Dishes TO ROLE_CHEF;
 GRANT INSERT, UPDATE, DELETE ON Recipes TO ROLE_CHEF;
 GRANT INSERT, UPDATE, DELETE ON Product_Catalog TO ROLE_CHEF;
-GRANT EXECUTE ON Koniec_Dnia_Darmowe_Oddanie TO ROLE_CHEF;
+GRANT EXECUTE ON Donate_Expired_Food TO ROLE_CHEF;
 ```
 
 * Cała struktura autoryzacji do bazy danych została ukształtowana w oparciu o fundamentalną zasadę bezpieczeństwa: **najmniejszego uprzywilejowania** (ang. _Principle of Least Privilege_).
-* **`ROLE_COOK`** (Kucharz) posiada jedynie bardzo restrykcyjne prawa odczytu do menu i stanów spiżarni. Co kluczowe – kucharz w ogóle nie ma prawa tworzyć ręcznie produktów, a stany spiżarni zmniejsza i rezerwuje wyłącznie wywołując w pełni ufany i obudowany logiką biznesową interfejs bazy, czyli stworzone procedury (`Zarezerwuj_Danie`). Uziemia to praktycznie do zera potencjał omijania logowania akcji przez szeregowych pracowników.
-* **`ROLE_CHEF`** (Szef Kuchni) dziedziczy podstawowe prawa zwykłego kucharza, ale dzięki awansowi otrzymuje pełne przywileje do wprowadzania nowych potraw na menu, modyfikacji starych przepisów i wreszcie posiada autoryzację administracyjną do uruchomienia procedury `Koniec_Dnia_Darmowe_Oddanie` na poczet działań fundacyjnych.
+* **`ROLE_COOK`** (Kucharz) posiada jedynie bardzo restrykcyjne prawa odczytu do menu i stanów spiżarni. Co kluczowe – kucharz w ogóle nie ma prawa tworzyć ręcznie produktów, a stany spiżarni zmniejsza i rezerwuje wyłącznie wywołując w pełni ufany i obudowany logiką biznesową interfejs bazy, czyli stworzone procedury (`Reserve_Dish`). Uziemia to praktycznie do zera potencjał omijania logowania akcji przez szeregowych pracowników.
+* **`ROLE_CHEF`** (Szef Kuchni) dziedziczy podstawowe prawa zwykłego kucharza, ale dzięki awansowi otrzymuje pełne przywileje do wprowadzania nowych potraw na menu, modyfikacji starych przepisów i wreszcie posiada autoryzację administracyjną do uruchomienia procedury `Donate_Expired_Food` na poczet działań fundacyjnych.
 
 ## Backend (API)
 Do integracji bazy danych Oracle z aplikacją kliencką (frontendem w React) zastosowano nowoczesny, wysokowydajny framework **FastAPI** w języku Python. Backend pełni rolę bezpiecznego łącznika (REST API), który przyjmuje żądania z interfejsu użytkownika, mapuje je na zapytania relacyjne i przekazuje do wykonania po stronie serwera Oracle, a następnie zwraca ustrukturyzowane wyniki w formacie JSON.
