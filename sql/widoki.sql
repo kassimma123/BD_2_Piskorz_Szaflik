@@ -25,6 +25,7 @@ WITH Available_Stock AS (
          GROUP BY d.Dish_ID, d.Dish_Name, d.Category
      )
 SELECT
+    Dish_ID AS "ID Dania",
     Dish_Name AS "Nazwa Dania",
     Category AS "Kategoria",
     Max_Portions AS "Możliwych Porcji",

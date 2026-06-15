@@ -119,3 +119,37 @@ def get_inventory_status():
     finally:
         cursor.close()
         conn.close()
+# aktywne zlecenia
+@app.get("/api/reservations")
+def get_reservations():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT r.Reservation_ID, r.User_ID, u.First_Name, u.Last_Name, 
+                   d.Dish_Name, r.Reservation_Date, r.Status 
+            FROM Reservations r
+            JOIN Users u ON r.User_ID = u.User_ID
+            JOIN Dishes d ON r.Dish_ID = d.Dish_ID
+            ORDER BY r.Reservation_Date DESC
+        """
+        cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+# lista użytkowników
+@app.get("/api/users")
+def get_users():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "SELECT User_ID, First_Name, Last_Name, Role FROM Users ORDER BY User_ID ASC"
+        cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
