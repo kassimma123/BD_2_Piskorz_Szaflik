@@ -2,6 +2,9 @@
 
 **Imiona i nazwiska:** Iga Szaflik, Katarzyna Piskorz
 
+repozytorium:
+https://github.com/kassimma123/BD_2_Piskorz_Szaflik.git
+
 ## Schemat Bazy danych
 
 ![spizarnia](spizarnia.png)
