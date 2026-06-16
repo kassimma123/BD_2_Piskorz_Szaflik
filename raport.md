@@ -633,6 +633,9 @@ Implementazja znajduje się w podfolderze backend w pliku `main.py`
 | **`POST`** | `/api/reservations/resolve` | `ResolveRequest` | Aktualizuje stan rezerwacji – pomniejsza fizyczny stan magazynu w przypadku ugotowania potrawy lub zwraca surowce do puli wolnej w przypadku anulowania. | `Resolve_Reservation` |
 | **`POST`** | `/api/admin/end-of-day` | `EndOfDayRequest` | Weryfikuje rolę użytkownika (wymagany Szef Kuchni) i automatycznie zeruje oraz przekazuje fundacjom towary bliskie przeterminowania. | `Donate_Expired_Food` |
 | **`GET`** | `/api/inventory` | *Brak* | Zwraca pełną listę partii magazynowych wraz z nazwami produktów, ilościami wolnymi i zarezerwowanymi. | `Inventory` + `Product_Catalog` |
+| **`GET`** | `/api/reservations` | *Brak* | Pobiera listę wszystkich aktywnych oraz zakończonych rezerwacji wraz z danymi kucharza i nazwą potrawy. | `Reservations` + `Users` + `Dishes` |
+| **`GET`** | `/api/users` | *Brak* | Zwraca listę pracowników systemu wraz z ich rolami (CHEF/COOK), wykorzystywaną m.in. do autoryzacji sesji. | `Users` |
+
 ### Jak włączyć?
 Przechodzimy do podfolderu z backendem:
 ```Bash

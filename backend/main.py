@@ -119,6 +119,7 @@ def get_inventory_status():
     finally:
         cursor.close()
         conn.close()
+        
 # aktywne zlecenia
 @app.get("/api/reservations")
 def get_reservations():
