@@ -1,3 +1,9 @@
+<style>
+    body {
+      font-size: 8pt;
+    }
+</style>
+
 # Projekt - spiżarnia
 
 **Imiona i nazwiska:** Iga Szaflik, Katarzyna Piskorz
@@ -7,7 +13,7 @@ https://github.com/kassimma123/BD_2_Piskorz_Szaflik.git
 
 ## Schemat Bazy danych
 
-![spizarnia](spizarnia.png)
+<img src="spizarnia.png" alt="Schemat spiżarni" width="850">
 
 ### `Users` (Użytkownicy)
 Tabela przechowuje informacje o użytkownikach systemu (np. domownikach, kucharzach), którzy mogą modyfikować stany magazynowe lub dokonywać rezerwacji posiłków.

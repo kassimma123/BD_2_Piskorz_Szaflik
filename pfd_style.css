@@ -1,0 +1,14 @@
+@media print {
+    @page { size: A4 landscape; margin: 1cm; }
+    body { font-size: 12pt; }
+    pre, code {
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 8pt;
+    }
+    img {
+        max-width: 70% !important;
+        display: block;
+        margin: 0 auto;
+    }
+}
