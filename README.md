@@ -1,5 +1,5 @@
 # Katarzyna Piskorz i Iga Szaflik
-# (Inteligentna Spiżarnia)
+# Inteligentna Spiżarnia
 
 Nowoczesny system zarządzania zapasami i menu restauracji, zaprojektowany w duchu **Zero Waste**. Aplikacja monitoruje stany magazynowe, terminy przydatności do spożycia oraz automatycznie sugeruje kucharzom, co ugotować, aby zminimalizować marnowanie żywności.
 
