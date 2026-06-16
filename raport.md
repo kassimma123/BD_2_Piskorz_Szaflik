@@ -646,3 +646,22 @@ uvicorn main:app --reload
 **Testowanie** W przeglądarce wpisz: `http://127.0.0.1:8000/docs`
 
 ## Frontend
+Interfejs użytkownika (klient) został zrealizowany w formie nowoczesnej aplikacji typu Single Page Application (SPA) przy użyciu biblioteki **React.js**. Narzędziem używanym do budowania i serwowania aplikacji jest **Vite**, co zapewnia błyskawiczne środowisko deweloperskie oraz zoptymalizowany proces budowania.
+
+Aplikacja frontendowa komunikuje się asynchronicznie z serwerem FastAPI za pośrednictwem zapytań RESTowych, wysyłając i pobierając dane w formacie JSON. Umożliwia ona w sposób intuicyjny przeglądanie stanów magazynowych spiżarni, zgłaszanie rezerwacji, a Szefowi Kuchni ułatwia weryfikację tego, co można dzisiaj ugotować z dostępnych składników. Warstwa wizualna została oparta o standardowy język CSS.
+
+### Uruchomienie aplikacji klienckiej
+Przechodzimy do podfolderu z frontendem:
+```bash
+cd frontend
+```
+Instalacja zależności środowiska Node.js (wymagane tylko za pierwszym razem):
+```bash
+npm install
+```
+Uruchomienie serwera deweloperskiego:
+```bash
+npm run dev
+```
+
+Aplikacja będzie domyślnie dostępna w przeglądarce pod adresem, który zostanie wyświetlony w konsoli (najczęściej `http://localhost:5173/`).
