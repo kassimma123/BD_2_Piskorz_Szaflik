@@ -89,7 +89,8 @@ function App() {
         fetchReport();
         fetchReservations();
       } else {
-        alert("Błąd rezerwacji: " + result.detail);
+        const errorMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : result.detail;
+        alert("Błąd rezerwacji: " + errorMsg);
       }
     } catch (error) {
       console.error("Błąd przy rezerwacji:", error);
@@ -112,7 +113,8 @@ function App() {
         fetchReport();
         fetchReservations();
       } else {
-        alert("Błąd aktualizacji: " + result.detail);
+        const errorMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : result.detail;
+        alert("Błąd aktualizacji: " + errorMsg);
       }
     } catch (error) {
       console.error("Błąd przy rozwiązywaniu:", error);
@@ -134,7 +136,8 @@ function App() {
         alert(`Pomyślnie oznaczono jako ${actionType}.`);
         fetchShoppingList();
       } else {
-        alert("Błąd aktualizacji: " + result.detail);
+        const errorMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : result.detail;
+        alert("Błąd aktualizacji: " + errorMsg);
       }
     } catch (error) {
       console.error("Błąd przy oznaczaniu zakupu:", error);
@@ -157,7 +160,8 @@ function App() {
         alert("Wszystkie przedmioty zostały zakupione.");
         fetchShoppingList();
       } else {
-        alert("Błąd aktualizacji: " + result.detail);
+        const errorMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : result.detail;
+        alert("Błąd aktualizacji: " + errorMsg);
       }
     } catch (error) {
       console.error("Błąd przy kupowaniu wszystkiego:", error);
