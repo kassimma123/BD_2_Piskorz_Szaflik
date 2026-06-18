@@ -43,5 +43,10 @@ INSERT INTO Recipes (Dish_ID, Product_ID, Required_Quantity) VALUES (2, 1, 5); -
 INSERT INTO Recipes (Dish_ID, Product_ID, Required_Quantity) VALUES (2, 2, 2); -- 2kg mąki
 INSERT INTO Recipes (Dish_ID, Product_ID, Required_Quantity) VALUES (2, 3, 10); -- 10 jajek
 
+-- Lista zakupów
+INSERT INTO Shopping_List (Product_ID, Date_Added, Status) VALUES (2, SYSDATE, 'TO_BUY');
+INSERT INTO Shopping_List (Product_ID, Date_Added, Status) VALUES (3, SYSDATE, 'TO_BUY');
+INSERT INTO Shopping_List (Product_ID, Date_Added, Status) VALUES (4, SYSDATE, 'TO_BUY');
+
 -- Zatwierdzenie zmian w bazie Oracle
 COMMIT;
