@@ -8,6 +8,7 @@ function App() {
   
   const [reportData, setReportData] = useState([]);
   const [reservations, setReservations] = useState([]);
+  const [shoppingList, setShoppingList] = useState([]);
 
   // Pobieranie użytkowników przy starcie
   useEffect(() => {
@@ -52,10 +53,23 @@ function App() {
     }
   };
 
+  const fetchShoppingList = async () => {
+    try {
+      const response = await fetch(`${API_URL}/shopping-list`);
+      if (response.ok) {
+        const data = await response.json();
+        setShoppingList(data);
+      }
+    } catch (error) {
+      console.error("Błąd pobierania listy zakupów:", error);
+    }
+  };
+
   useEffect(() => {
     if (activeUser) {
       fetchReport();
       fetchReservations();
+      fetchShoppingList();
     }
   }, [activeUser]);
 
@@ -102,6 +116,51 @@ function App() {
       }
     } catch (error) {
       console.error("Błąd przy rozwiązywaniu:", error);
+    }
+  };
+
+  // Rozwiązanie zakupu
+  const handleResolveShopping = async (shoppingListId, actionType) => {
+    try {
+      const response = await fetch(`${API_URL}/shopping-list/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopping_list_id: shoppingListId, action: actionType })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert(`Pomyślnie oznaczono jako ${actionType}.`);
+        fetchShoppingList();
+      } else {
+        alert("Błąd aktualizacji: " + result.detail);
+      }
+    } catch (error) {
+      console.error("Błąd przy oznaczaniu zakupu:", error);
+    }
+  };
+
+  // Kup wszystko na raz
+  const handleResolveAllShopping = async () => {
+    if (!window.confirm("Czy na pewno chcesz oznaczyć wszystko jako kupione?")) return;
+
+    try {
+      const response = await fetch(`${API_URL}/shopping-list/resolve-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert("Wszystkie przedmioty zostały zakupione.");
+        fetchShoppingList();
+      } else {
+        alert("Błąd aktualizacji: " + result.detail);
+      }
+    } catch (error) {
+      console.error("Błąd przy kupowaniu wszystkiego:", error);
     }
   };
 
@@ -326,7 +385,7 @@ function App() {
         </section>
 
         {/* PANEL AKTYWNYCH ZLECEŃ */}
-        <section className="glass-panel">
+        <section className="glass-panel" style={{ marginBottom: '2rem' }}>
           <h2 style={{ marginTop: 0, color: '#10b981', fontSize: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(16, 185, 129, 0.2)', paddingBottom: '1rem' }}>
             Aktywne Rezerwacje (W Trakcie)
           </h2>
@@ -368,6 +427,62 @@ function App() {
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        </section>
+
+        {/* PANEL LISTY ZAKUPÓW */}
+        <section className="glass-panel">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(245, 158, 11, 0.2)', paddingBottom: '1rem' }}>
+            <h2 style={{ margin: 0, color: '#f59e0b', fontSize: '1.5rem' }}>
+              Lista Zakupów
+            </h2>
+            {shoppingList.filter(i => i.STATUS === 'TO_BUY').length > 0 && (
+              <button 
+                onClick={handleResolveAllShopping}
+                style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                Kup wszystko
+              </button>
+            )}
+          </div>
+
+          <div className="cards-container" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {shoppingList.length === 0 ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>Lista zakupów jest pusta.</p>
+            ) : (
+              shoppingList.map((item, idx) => {
+                const addDate = new Date(item.DATE_ADDED).toLocaleString('pl-PL');
+                return (
+                  <div key={idx} style={{ 
+                    background: 'rgba(15, 23, 42, 0.6)', 
+                    border: '1px solid #334155', 
+                    borderRadius: '8px', 
+                    padding: '1rem',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <strong style={{ color: '#fff', fontSize: '1.1rem' }}>{item.PRODUCT_NAME}</strong>
+                      <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '4px' }}>
+                        Data dodania: {addDate} • Status: {item.STATUS}
+                      </div>
+                    </div>
+                    
+                    {item.STATUS === 'TO_BUY' && (
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button 
+                          onClick={() => handleResolveShopping(item.SHOPPING_LIST_ID, 'COMPLETED')}
+                          style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          Oznacz jako kupione
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
         </section>

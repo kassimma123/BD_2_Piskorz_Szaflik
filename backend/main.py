@@ -31,6 +31,10 @@ class ResolveRequest(BaseModel):
 class EndOfDayRequest(BaseModel):
     admin_user_id: int
 
+class ResolveShoppingRequest(BaseModel):
+    shopping_list_id: int
+    action: str
+
 # łączenie z bazą
 def get_db_connection():
     try:
@@ -151,6 +155,62 @@ def get_users():
         cursor.execute(query)
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+# lista zakupów
+@app.get("/api/shopping-list")
+def get_shopping_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT sl.Shopping_List_ID, p.Product_Name, sl.Date_Added, sl.Status
+            FROM Shopping_List sl
+            JOIN Product_Catalog p ON sl.Product_ID = p.Product_ID
+            ORDER BY sl.Date_Added DESC
+        """
+        cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+# oznaczanie zakupu
+@app.post("/api/shopping-list/resolve")
+def resolve_shopping_list(req: ResolveShoppingRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE Shopping_List SET Status = :1 WHERE Shopping_List_ID = :2",
+            [req.action, req.shopping_list_id]
+        )
+        conn.commit()
+        return {"status": "success", "message": f"Shopping item {req.shopping_list_id} resolved as {req.action}."}
+    except oracledb.DatabaseError as e:
+        error_obj, = e.args
+        raise HTTPException(status_code=400, detail=error_obj.message)
+    finally:
+        cursor.close()
+        conn.close()
+
+# kupowanie wszystkich elementow na liscie
+@app.post("/api/shopping-list/resolve-all")
+def resolve_all_shopping_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE Shopping_List SET Status = 'COMPLETED' WHERE Status = 'TO_BUY'"
+        )
+        conn.commit()
+        return {"status": "success", "message": "Wszystkie przedmioty zostały zakupione."}
+    except oracledb.DatabaseError as e:
+        error_obj, = e.args
+        raise HTTPException(status_code=400, detail=error_obj.message)
     finally:
         cursor.close()
         conn.close()
